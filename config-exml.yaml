@@ -1,0 +1,14 @@
+# config.yaml
+telegram_token: "YOUR_TELEGRAM_BOT_TOKEN"
+allowed_users:
+  - 123456789
+  - 987654321
+download_dir: "/home/username/Music"
+
+spotify:
+  client_id: "YOUR_SPOTIFY_CLIENT_ID"
+  client_secret: "YOUR_SPOTIFY_CLIENT_SECRET"
+
+yandex:
+  username: ""
+  password: ""
