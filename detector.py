@@ -36,11 +36,4 @@ class URLDetector:
         if self.SP_PLAYLIST.search(url):
             return "spotify", "playlist"
 
-        if self.YA_TRACK.search(url):
-            return "yandex", "track"
-        if self.YA_ALBUM.search(url):
-            return "yandex", "album"
-        if self.YA_PLAYLIST.search(url):
-            return "yandex", "playlist"
-
         return None, None
