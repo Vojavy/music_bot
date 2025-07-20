@@ -1,6 +1,5 @@
-aiogram>=3.0
+aiogram>=3.21.0
 yt-dlp>=2025.06.16
 spotdl>=4.2.11
-# yandex-music-api>=1.2.0
 mutagen>=1.46.0
 PyYAML>=6.0
