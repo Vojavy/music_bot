@@ -1,0 +1,8 @@
+__pycache__
+*.pyc
+*.pyo
+*.pyd
+.cache
+.git
+.gitignore
+config.yaml

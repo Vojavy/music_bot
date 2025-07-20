@@ -1,0 +1,53 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: music-bot-config
+data:
+  config-template.yaml: |
+    telegram_token: "${TELEGRAM_TOKEN}"
+    allowed_users:
+      # IDs of Telegram users allowed to use the bot
+      - 123456789
+      - 987654321
+    download_dir: "/data"
+    
+    spotify:
+      client_id: "${SPOTIFY_CLIENT_ID}"
+      client_secret: "${SPOTIFY_CLIENT_SECRET}"
+    
+    yandex:
+      username: "${YANDEX_USERNAME}"
+      password: "${YANDEX_PASSWORD}"
+    
+    cookies:
+      # Path inside the container for yt-dlp cookies (optional)
+      youtube: "/config/youtube_cookies.txt"
+    
+    file_upload:
+      subdir: "Telegram Uploads"
+      allowed_exts:
+        - .mp3
+        - .flac
+        - .m4a
+        - .aac
+        - .ogg
+        - .opus
+        - .wav
+        - .aiff
+        - .aif
+        - .wma
+        - .dsf
+        - .dff
+        - .mka
+    
+    metadata_lookup:
+      enable: true
+      min_confidence: 0.5
+      acoustid_api_key: "${ACOUSTID_KEY}"
+      musicbrainz_useragent: "MusicBot/0.1 (youremail@example.com)"
+      lastfm_api_key: "${LASTFM_API_KEY}"
+      discogs:
+        user_agent: "MusicBot/0.1"
+        token: "${DISCOGS_TOKEN}"
+      prefer_existing_tags: true
+      fetch_cover_art: true

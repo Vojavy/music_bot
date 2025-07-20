@@ -1,0 +1,76 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: music-bot
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: music-bot
+  template:
+    metadata:
+      labels:
+        app: music-bot
+    spec:
+      containers:
+        - name: bot
+          image: your-registry/music-bot:latest
+          env:
+            - name: TELEGRAM_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: music-bot-secrets
+                  key: TELEGRAM_TOKEN
+            - name: SPOTIFY_CLIENT_ID
+              valueFrom:
+                secretKeyRef:
+                  name: music-bot-secrets
+                  key: SPOTIFY_CLIENT_ID
+            - name: SPOTIFY_CLIENT_SECRET
+              valueFrom:
+                secretKeyRef:
+                  name: music-bot-secrets
+                  key: SPOTIFY_CLIENT_SECRET
+            - name: ACOUSTID_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: music-bot-secrets
+                  key: ACOUSTID_KEY
+            - name: LASTFM_API_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: music-bot-secrets
+                  key: LASTFM_API_KEY
+            - name: DISCOGS_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: music-bot-secrets
+                  key: DISCOGS_TOKEN
+            - name: YANDEX_USERNAME
+              valueFrom:
+                secretKeyRef:
+                  name: music-bot-secrets
+                  key: YANDEX_USERNAME
+            - name: YANDEX_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: music-bot-secrets
+                  key: YANDEX_PASSWORD
+          volumeMounts:
+            - name: config-volume
+              mountPath: /app/config-template.yaml
+              subPath: config-template.yaml
+            - name: data-volume
+              mountPath: /data
+            - name: cookie-volume
+              mountPath: /config
+      volumes:
+        - name: config-volume
+          configMap:
+            name: music-bot-config
+        - name: data-volume
+          persistentVolumeClaim:
+            claimName: music-bot-pvc
+        - name: cookie-volume
+          secret:
+            secretName: youtube-cookies
