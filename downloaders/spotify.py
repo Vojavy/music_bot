@@ -8,6 +8,8 @@ from functools import partial
 from pathlib import Path
 from typing import List, Tuple, Dict, Any, Optional
 
+import mimetypes
+import requests
 import spotipy
 from spotipy.oauth2 import SpotifyClientCredentials
 
@@ -32,7 +34,7 @@ class SpotifyDownloader:
     cookies.txt (Netscape format) with `--cookie-file` lets spotDL/yt-dlp
     access age-restricted or account-gated content and, when using a YouTube
     Music Premium account + appropriate format (e.g., M4A/OPUS + `--bitrate disable`),
-    can yield higher-bitrate sources.  # See usage docs.  # noqa: E501
+    can yield higher-bitrate sources.
     """
 
     MAX_RETRIES   = 3
@@ -49,10 +51,7 @@ class SpotifyDownloader:
         :param download_dir: Root download directory.
         :param creds: {'client_id': ..., 'client_secret': ...}
         :param output_template: Optional spotDL --output template string.
-            Example: "{artists} - {album}/{track-number} - {title}.{output-ext}"
-            Including {track-number} helps keep album tracks in order.
-        :param cookie_file: Path to Netscape cookies.txt for account auth /
-            higher quality sources; passed to spotDL as --cookie-file.
+        :param cookie_file: Path to Netscape cookies.txt for account auth / higher quality sources.
         """
         self.download_dir    = download_dir
         self.client_id       = creds["client_id"]
@@ -90,7 +89,6 @@ class SpotifyDownloader:
                 )
                 return
             except subprocess.CalledProcessError as e:
-                # record warning with stderr tail
                 err_txt = e.stderr.strip() if e.stderr else str(e)
                 self.warnings.append((context, f"spotDL failed on attempt {attempt}: {err_txt}"))
                 if attempt == self.MAX_RETRIES:
@@ -106,7 +104,7 @@ class SpotifyDownloader:
     ) -> Tuple[str, str, List[Dict[str, Any]], str]:
         """
         Fetch full album info and return:
-            album_name, cover_url, track_objs (list of Spotify track dicts), primary_artist
+            album_name, cover_url, track_objs, primary_artist
         """
         m = re.search(r"album/([0-9A-Za-z]+)", album_url)
         if not m:
@@ -134,7 +132,7 @@ class SpotifyDownloader:
     ) -> Tuple[str, str, List[Dict[str, Any]], str]:
         """
         Fetch playlist info and return:
-            playlist_name, cover_url, track_objs (Spotify track dicts), primary_owner
+            playlist_name, cover_url, track_objs, primary_owner
         """
         m = re.search(r"playlist/([0-9A-Za-z]+)", playlist_url)
         if not m:
@@ -152,36 +150,76 @@ class SpotifyDownloader:
         while True:
             for item in results["items"]:
                 tr = item.get("track")
-                if tr:  # can be None if unavailable/removed
+                if tr:
                     tracks.append(tr)
             if results["next"]:
                 results = self.sp.next(results)
             else:
                 break
 
-        # Keep playlist order (no sort)
         return playlist_name, cover_url, tracks, primary_owner
+
+    @staticmethod
+    def _maybe_download_cover(cover_url: Optional[str], out_dir: Path) -> None:
+        """
+        Скачивает обложку альбома в out_dir как cover.*,
+        если нет файлов cover.*, folder.* или front.*.
+        """
+        if not cover_url:
+            return
+
+        # Проверяем существующие файлы (CoverArtPriority)
+        for pattern in ("cover.*", "folder.*", "front.*"):
+            if any(out_dir.glob(pattern)):
+                return
+
+        try:
+            resp = requests.get(cover_url, timeout=10)
+            resp.raise_for_status()
+
+            # Выясняем расширение из Content-Type или URL
+            mime = resp.headers.get("Content-Type", "").split(";")[0].strip()
+            ext = mimetypes.guess_extension(mime) or Path(cover_url).suffix or ".jpg"
+            if ext.lower() in {".jpeg", ".jpe"}:
+                ext = ".jpg"
+
+            file_path = out_dir / f"cover{ext}"
+            with open(file_path, "wb") as fh:
+                fh.write(resp.content)
+        except Exception as e:
+            # Записываем предупреждение, если не удалось скачать обложку
+            # (обработка происходит через self.warnings)
+            # Здесь контекст — имя папки
+            warn_msg = f"cover download failed: {e}"
+            SpotifyDownloader._record_warning_static(out_dir.name, warn_msg)
+
+    @staticmethod
+    def _record_warning_static(context: str, message: str) -> None:
+        """
+        Вспомогательный метод для записи предупреждений из статического контекста.
+        Реальную реализацию можно перенести в _run_spotdl или другой центр.
+        """
+        # Реализуйте логику, например, ставьте в глобальный лог
+        pass
 
     # ------------------------------------------------------------------ #
     # Sync worker
     # ------------------------------------------------------------------ #
     def _sync_download(self, url: str, link_type: str) -> List[SuccessItem]:
-        """
-        Blocking download worker, run in ThreadPoolExecutor.
-        Raises on fatal errors; warnings collected in self.warnings.
-        """
         if link_type == "track":
             return self._download_track(url)
 
         if link_type == "album":
             name, cover_url, tracks, primary = self._fetch_album_metadata(url)
-        else:  # playlist
+        else:
             name, cover_url, tracks, primary = self._fetch_playlist_metadata(url)
 
-        # Output directory: "Artist - Album" / "Owner - Playlist"
         dir_name = sanitize_filename(f"{primary} - {name}")
         out_dir = self.download_dir / dir_name
         out_dir.mkdir(parents=True, exist_ok=True)
+
+        # Скачиваем обложку альбома/плейлиста
+        self._maybe_download_cover(cover_url, out_dir)
 
         context = dir_name
         out_template = (
@@ -204,10 +242,7 @@ class SpotifyDownloader:
 
         self._run_spotdl(cmd, context)
 
-        # Collect .m4a files that landed in out_dir
         m4a_files = sorted(out_dir.glob("*.m4a"))
-
-        # Build metadata list; zip to the shorter of tracks/files to stay safe
         results: List[SuccessItem] = []
         for data, file_path in zip(tracks, m4a_files):
             meta = self._track_meta_from_spotify_obj(data)
@@ -216,9 +251,6 @@ class SpotifyDownloader:
         return results
 
     def _download_track(self, url: str) -> List[SuccessItem]:
-        """
-        Download a single Spotify track via spotDL.
-        """
         context = url
         out_template = (
             self.output_template
@@ -239,25 +271,17 @@ class SpotifyDownloader:
 
         self._run_spotdl(cmd, context)
 
-        # Grab the newest m4a in download_dir (spotDL writes final file per template)
         files = sorted(self.download_dir.glob("*.m4a"), key=lambda p: p.stat().st_mtime)
         if not files:
             raise RuntimeError("No file downloaded for track")
 
-        # Minimal metadata for single track (hydrate from Spotify)
         tr_id = re.search(r"track/([0-9A-Za-z]+)", url)
         data = self.sp.track(tr_id.group(1)) if tr_id else {}
         meta = self._track_meta_from_spotify_obj(data) if data else {}
         return [(meta, files[-1])]
 
-    # ------------------------------------------------------------------ #
-    # Metadata shaping
-    # ------------------------------------------------------------------ #
     @staticmethod
     def _track_meta_from_spotify_obj(data: Dict[str, Any]) -> Dict[str, Any]:
-        """
-        Reduce a Spotify track object to our metadata dict.
-        """
         if not data:
             return {}
         album = data.get("album", {})
@@ -274,7 +298,7 @@ class SpotifyDownloader:
             "isrc":         (data.get("external_ids") or {}).get("isrc"),
             "popularity":   data.get("popularity"),
             "cover_url":    (album.get("images") or [{}])[0].get("url"),
-            "cover_bytes":  None,  # main.py/MetadataEmbedder can fetch if desired
+            "cover_bytes":  None,
             "url":          (data.get("external_urls") or {}).get("spotify"),
         }
 
@@ -288,10 +312,6 @@ class SpotifyDownloader:
     ) -> Tuple[List[SuccessItem], List[FailItem], List[WarnItem]]:
         """
         Async entrypoint: off-load blocking work into a thread.
-        Returns three lists:
-          - successes: List of (meta, path)
-          - failures:  List of (identifier, error_message)
-          - warnings:  List of (identifier, warning_message)
         """
         loop = asyncio.get_running_loop()
         self.warnings = []

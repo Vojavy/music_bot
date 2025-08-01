@@ -1,0 +1,19 @@
+name: Build & Push music‑bot
+
+on:
+  push:
+    branches: [ main ]
+
+jobs:
+  build-push:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Log in & Build → Push
+        env:
+          REGISTRY_USER: ${{ secrets.REGISTRY_USER }}
+          REGISTRY_PASS: ${{ secrets.REGISTRY_PASS }}
+        run: |
+          chmod +x build_push.sh
+          ../build_push.sh --env prod
